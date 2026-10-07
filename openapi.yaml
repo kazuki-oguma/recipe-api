@@ -1,0 +1,459 @@
+openapi: 3.0.3
+info:
+  title: recipe-api
+  description: |
+    レシピ情報をCRUD操作するREST APIサーバーの定義。
+
+    ## ステータスコードの方針
+    - 公開済みエンドポイント（`/recipes`, `/recipes/{id}`）へのアクセスは、リクエスト内容の正当性（必須項目不足・不正なbody・`{id}`の形式不正など）に関わらず常に `200 OK` を返し、エラー内容はレスポンスボディの `message`（および`required`）で通知する。
+    - `404 Not Found` は「指定IDのリソースが存在しない場合」と「未定義のエンドポイントへのアクセス」にのみ用いる。
+    - 定義済みパスに許可されていないHTTPメソッドでアクセスした場合は `405 Method Not Allowed` を返す。
+    - サーバー内部エラー（DBアクセス失敗等）は `500 Internal Server Error` を返す。
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+    description: ローカル開発環境
+
+tags:
+  - name: recipes
+    description: レシピリソースの操作
+
+paths:
+  /recipes:
+    post:
+      tags: [recipes]
+      summary: レシピを新規作成する
+      operationId: createRecipe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeCreateRequest"
+            example:
+              title: "チキンカレー"
+              making_time: "45分"
+              serves: "4人"
+              ingredients: "玉ねぎ,肉,スパイス"
+              cost: 1000
+      responses:
+        "200":
+          description: |
+            作成成功、または必須項目不足・リクエストボディ不正による作成失敗。
+            いずれの場合もステータスは200で、`message`（失敗時は`required`も）で結果を判別する。
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RecipeCreateSuccessResponse"
+                  - $ref: "#/components/schemas/RecipeCreateFailureResponse"
+              examples:
+                success:
+                  summary: 作成成功
+                  value:
+                    message: "Recipe successfully created!"
+                    recipe:
+                      - id: 3
+                        title: "チキンカレー"
+                        making_time: "45分"
+                        serves: "4人"
+                        ingredients: "玉ねぎ,肉,スパイス"
+                        cost: "1000"
+                        created_at: "2026-10-07 12:00:00"
+                        updated_at: "2026-10-07 12:00:00"
+                validation_failed:
+                  summary: 必須項目不足・リクエストボディ不正
+                  value:
+                    message: "Recipe creation failed!"
+                    required: "title, making_time, serves, ingredients, cost"
+        "500":
+          description: サーバー内部エラー（DB書き込み失敗など）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "レシピの作成に失敗しました"
+
+    get:
+      tags: [recipes]
+      summary: レシピ一覧を取得する
+      description: データベース内の全レシピを返す。一覧表示では`created_at`/`updated_at`を含まない省略表現を返す。
+      operationId: listRecipes
+      responses:
+        "200":
+          description: 取得成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RecipeSummary"
+                required: [recipes]
+              example:
+                recipes:
+                  - id: 1
+                    title: "チキンカレー"
+                    making_time: "45分"
+                    serves: "4人"
+                    ingredients: "玉ねぎ,肉,スパイス"
+                    cost: "1000"
+                  - id: 2
+                    title: "オムライス"
+                    making_time: "30分"
+                    serves: "2人"
+                    ingredients: "玉ねぎ,卵,スパイス,醤油"
+                    cost: "700"
+                  - id: 3
+                    title: "トマトスープ"
+                    making_time: "15分"
+                    serves: "5人"
+                    ingredients: "玉ねぎ, トマト, スパイス, 水"
+                    cost: "450"
+        "500":
+          description: サーバー内部エラー（DB読み込み失敗など）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "レシピ一覧の取得に失敗しました"
+
+  /recipes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: |
+          レシピID。数値以外が指定された場合も、公開済みエンドポイントであるため
+          404ではなく200で`message`にエラー内容（"idは数値で指定してください"）を返す。
+        schema:
+          type: string
+          example: "1"
+
+    get:
+      tags: [recipes]
+      summary: 指定IDのレシピを1件取得する
+      operationId: getRecipe
+      responses:
+        "200":
+          description: 取得成功、またはidの形式が不正な場合のエラー通知（いずれも200）。
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RecipeGetResponse"
+                  - $ref: "#/components/schemas/ErrorMessage"
+              examples:
+                success:
+                  summary: 取得成功
+                  value:
+                    message: "Recipe details by id"
+                    recipe:
+                      - id: 1
+                        title: "チキンカレー"
+                        making_time: "45分"
+                        serves: "4人"
+                        ingredients: "玉ねぎ,肉,スパイス"
+                        cost: "1000"
+                invalid_id:
+                  summary: idが数値でない
+                  value:
+                    message: "idは数値で指定してください"
+        "404":
+          description: 指定IDのレシピが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "recipe not found"
+        "500":
+          description: サーバー内部エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "レシピの取得に失敗しました"
+
+    patch:
+      tags: [recipes]
+      summary: 指定IDのレシピを部分更新する
+      description: リクエストボディで指定した項目のみを更新する（部分更新）。未指定の項目は変更されない。
+      operationId: updateRecipe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecipeUpdateRequest"
+            example:
+              cost: 1200
+      responses:
+        "200":
+          description: |
+            更新成功、またはリクエストボディ不正・更新項目未指定・idの形式不正によるエラー通知。
+            いずれの場合もステータスは200。
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/RecipeUpdateSuccessResponse"
+                  - $ref: "#/components/schemas/ErrorMessage"
+              examples:
+                success:
+                  summary: 更新成功
+                  value:
+                    message: "Recipe successfully updated!"
+                    recipe:
+                      - title: "トマトスープレシピ"
+                        making_time: "15分"
+                        serves: "5人"
+                        ingredients: "玉ねぎ, トマト, スパイス, 水"
+                        cost: "450"
+                no_fields:
+                  summary: 更新項目が1件も指定されていない
+                  value:
+                    message: "更新する項目が指定されていません"
+        "404":
+          description: 指定IDのレシピが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "recipe not found"
+        "500":
+          description: サーバー内部エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "レシピの更新に失敗しました"
+
+    delete:
+      tags: [recipes]
+      summary: 指定IDのレシピを削除する
+      operationId: deleteRecipe
+      responses:
+        "200":
+          description: 削除成功、またはidの形式が不正な場合のエラー通知（いずれも200）。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              examples:
+                success:
+                  summary: 削除成功
+                  value:
+                    message: "Recipe successfully removed!"
+                invalid_id:
+                  summary: idが数値でない
+                  value:
+                    message: "idは数値で指定してください"
+        "404":
+          description: 指定IDのレシピが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "No Recipe found"
+        "500":
+          description: サーバー内部エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              example:
+                message: "レシピの削除に失敗しました"
+
+components:
+  schemas:
+    RecipeCreateRequest:
+      type: object
+      description: POST /recipesのリクエストボディ。全項目必須。
+      required: [title, making_time, serves, ingredients, cost]
+      properties:
+        title:
+          type: string
+          example: "チキンカレー"
+        making_time:
+          type: string
+          example: "45分"
+        serves:
+          type: string
+          example: "4人"
+        ingredients:
+          type: string
+          example: "玉ねぎ,肉,スパイス"
+        cost:
+          type: integer
+          example: 1000
+
+    RecipeUpdateRequest:
+      type: object
+      description: PATCH /recipes/{id}のリクエストボディ。全項目任意（指定した項目のみ更新）。
+      properties:
+        title:
+          type: string
+          example: "チキンカレー"
+        making_time:
+          type: string
+          example: "45分"
+        serves:
+          type: string
+          example: "4人"
+        ingredients:
+          type: string
+          example: "玉ねぎ,肉,スパイス"
+        cost:
+          type: integer
+          example: 1200
+
+    RecipeFull:
+      type: object
+      description: レシピの完全な表現（POST成功時のみ使用。created_at/updated_atを含む）。
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 3
+        title:
+          type: string
+          example: "チキンカレー"
+        making_time:
+          type: string
+          example: "45分"
+        serves:
+          type: string
+          example: "4人"
+        ingredients:
+          type: string
+          example: "玉ねぎ,肉,スパイス"
+        cost:
+          type: string
+          description: 価格。レスポンスでは文字列として表現される。
+          example: "1000"
+        created_at:
+          type: string
+          example: "2026-10-07 12:00:00"
+        updated_at:
+          type: string
+          example: "2026-10-07 12:00:00"
+      required: [id, title, making_time, serves, ingredients, cost, created_at, updated_at]
+
+    RecipeSummary:
+      type: object
+      description: レシピの省略表現（GET一覧・GET単体で使用。created_at/updated_atを含まない）。
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        title:
+          type: string
+          example: "チキンカレー"
+        making_time:
+          type: string
+          example: "45分"
+        serves:
+          type: string
+          example: "4人"
+        ingredients:
+          type: string
+          example: "玉ねぎ,肉,スパイス"
+        cost:
+          type: string
+          description: 価格。レスポンスでは文字列として表現される。
+          example: "1000"
+      required: [id, title, making_time, serves, ingredients, cost]
+
+    RecipePatchResult:
+      type: object
+      description: PATCH成功時のレシピ表現。idとcreated_at/updated_atを含まない。
+      properties:
+        title:
+          type: string
+          example: "トマトスープレシピ"
+        making_time:
+          type: string
+          example: "15分"
+        serves:
+          type: string
+          example: "5人"
+        ingredients:
+          type: string
+          example: "玉ねぎ, トマト, スパイス, 水"
+        cost:
+          type: string
+          description: 価格。レスポンスでは文字列として表現される。
+          example: "450"
+      required: [title, making_time, serves, ingredients, cost]
+
+    RecipeCreateSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          enum: ["Recipe successfully created!"]
+        recipe:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/RecipeFull"
+      required: [message, recipe]
+
+    RecipeCreateFailureResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          enum: ["Recipe creation failed!"]
+        required:
+          type: string
+          description: 必須項目名のカンマ区切り固定文字列（不足項目に関わらず常に全項目を返す）。
+          example: "title, making_time, serves, ingredients, cost"
+      required: [message, required]
+
+    RecipeGetResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          enum: ["Recipe details by id"]
+        recipe:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/RecipeSummary"
+      required: [message, recipe]
+
+    RecipeUpdateSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          enum: ["Recipe successfully updated!"]
+        recipe:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/RecipePatchResult"
+      required: [message, recipe]
+
+    ErrorMessage:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "recipe not found"
+      required: [message]
